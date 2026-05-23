@@ -1,0 +1,762 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Camera, Settings as SettingsIcon, Image as ImageIcon, Sparkles, Download, Aperture, Clock, Upload, Trash2, Sliders, Bookmark, List } from 'lucide-react';
+import { InstructionBanner } from './components/InstructionBanner';
+import { SettingsDialog, Settings } from './components/SettingsDialog';
+import { AlertDialog } from './components/AlertDialog';
+import { ModelSelectionDialog } from './components/ModelSelectionDialog';
+import { PromptHistoryDialog, PromptHistoryItem } from './components/PromptHistoryDialog';
+import { GalleryDialog, GalleryItem } from './components/GalleryDialog';
+import { SavePresetDialog } from './components/SavePresetDialog';
+import { PresetsDialog, PresetItem } from './components/PresetsDialog';
+import { enhancePromptWithGemini } from './services/geminiService';
+import { enhancePromptWithProxy } from './services/proxyService';
+import { generateImageUrl } from './services/imageService';
+import { APP_CONFIG } from './constants';
+import { OPTIMIZATION_MODELS, getModelNegativePrompt, checkSyntaxWarnings } from './utils/promptOptimizer';
+
+const getDimensions = (ratio: string) => {
+  switch (ratio) {
+    case '16:9': return { width: 1280, height: 720 };
+    case '9:16': return { width: 720, height: 1280 };
+    case '3:2': return { width: 1080, height: 720 };
+    case '2:3': return { width: 720, height: 1080 };
+    case '1:1':
+    default:
+      return { width: 1024, height: 1024 };
+  }
+};
+
+function App() {
+  const [mode, setMode] = useState<'idea' | 'direct'>('idea');
+  const [ideaText, setIdeaText] = useState('');
+  const [characterProfile, setCharacterProfile] = useState('');
+  const [customRules, setCustomRules] = useState('');
+  const [promptText, setPromptText] = useState('');
+  const [negativePrompt, setNegativePrompt] = useState('');
+  const [seedText, setSeedText] = useState('');
+  
+  const [referenceImage, setReferenceImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [targetRenderModel, setTargetRenderModel] = useState('flux');
+  
+  const [currentImageUrl, setCurrentImageUrl] = useState<string | null>(null);
+  const [imageUrls, setImageUrls] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isInferring, setIsInferring] = useState(false);
+  const [loadingText, setLoadingText] = useState('');
+  
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [modelSelectionOpen, setModelSelectionOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [presetsOpen, setPresetsOpen] = useState(false);
+  const [savePresetOpen, setSavePresetOpen] = useState(false);
+  
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [geminiModelSelectionOpen, setGeminiModelSelectionOpen] = useState(false);
+  const [availableGeminiModels, setAvailableGeminiModels] = useState<string[]>([]);
+
+  const [pendingCount, setPendingCount] = useState(1);
+  const [history, setHistory] = useState<PromptHistoryItem[]>([]);
+  const [gallery, setGallery] = useState<GalleryItem[]>([]);
+  const [presets, setPresets] = useState<PresetItem[]>([]);
+  const [aspectRatio, setAspectRatio] = useState<'1:1' | '16:9' | '9:16' | '3:2' | '2:3'>('1:1');
+  
+  const [alertState, setAlertState] = useState({ isOpen: false, message: '' });
+  
+  const [settings, setSettings] = useState<Settings>({
+    useGemini: true,
+    apiKey: '',
+    customModel: '',
+    geminiModel: '',
+    proxyModel: 'openai-large' // Default pollination model
+  });
+
+  // Khôi phục cài đặt từ localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('cineTechSettings');
+    if (saved) {
+      try {
+        setSettings(JSON.parse(saved));
+      } catch (e) {
+        // bỏ qua nếu lỗi
+      }
+    }
+    
+    const savedHistory = localStorage.getItem('cineTechHistory');
+    if (savedHistory) {
+      try {
+        setHistory(JSON.parse(savedHistory));
+      } catch (e) {}
+    }
+    
+    const savedGallery = localStorage.getItem('cineTechGallery');
+    if (savedGallery) {
+      try {
+        setGallery(JSON.parse(savedGallery));
+      } catch (e) {}
+    }
+
+    const savedPresets = localStorage.getItem('cineTechPresets');
+    if (savedPresets) {
+      try {
+        setPresets(JSON.parse(savedPresets));
+      } catch (e) {}
+    }
+  }, []);
+
+  const handleSettingsChange = (newSettings: Settings) => {
+    setSettings(newSettings);
+    localStorage.setItem('cineTechSettings', JSON.stringify(newSettings));
+  };
+
+  const addToHistory = (idea: string, prompt: string, rules: string, profile?: string) => {
+    // Avoid saving duplicate ideas based on text
+    const isDuplicate = history.some(item => item.idea.trim().toLowerCase() === idea.trim().toLowerCase());
+    if (isDuplicate) return;
+
+    const newItem: PromptHistoryItem = {
+      id: Date.now().toString(),
+      idea,
+      prompt,
+      rules,
+      characterProfile: profile,
+      createdAt: Date.now()
+    };
+    const newHistory = [newItem, ...history];
+    setHistory(newHistory);
+    localStorage.setItem('cineTechHistory', JSON.stringify(newHistory.slice(0, 50)));
+  };
+
+  const addToGallery = (items: GalleryItem[]) => {
+    const newGallery = [...items, ...gallery];
+    setGallery(newGallery);
+    localStorage.setItem('cineTechGallery', JSON.stringify(newGallery.slice(0, 100)));
+  };
+
+  const showAlert = (message: string) => setAlertState({ isOpen: true, message });
+
+  const handlePreInferPrompt = () => {
+    if (!ideaText.trim()) return;
+    if (settings.useGemini && !settings.apiKey) {
+      showAlert("Vui lòng vào Cài đặt để nhập Gemini API Key trước khi sử dụng AI nội suy.");
+      setSettingsOpen(true);
+      return;
+    }
+    
+    // Choose which models array to split based on settings.useGemini
+    const modelsRaw = settings.useGemini ? (settings.geminiModel || '') : (settings.proxyModel || '');
+    const models = modelsRaw.split(',').map(s => s.trim()).filter(s => s !== '');
+    
+    if (models.length > 1) {
+      setAvailableGeminiModels(models);
+      setGeminiModelSelectionOpen(true);
+    } else {
+      doInferPrompt(models.length === 1 ? models[0] : '');
+    }
+  };
+
+  const doInferPrompt = async (selectedModel: string) => {
+    setIsInferring(true);
+    try {
+      let resultPrompt = ideaText;
+      if (settings.useGemini) {
+        resultPrompt = await enhancePromptWithGemini(ideaText, settings.apiKey, customRules, selectedModel, referenceImage || undefined, targetRenderModel, characterProfile);
+      } else {
+        resultPrompt = await enhancePromptWithProxy(ideaText, APP_CONFIG.PROXY_URL, selectedModel, customRules, referenceImage || undefined, targetRenderModel, characterProfile);
+      }
+      setPromptText(resultPrompt);
+      addToHistory(ideaText, resultPrompt, customRules, characterProfile);
+      
+      if (targetRenderModel && targetRenderModel !== 'general') {
+        const autoNegPrompt = getModelNegativePrompt(targetRenderModel);
+        setNegativePrompt(autoNegPrompt);
+        if (autoNegPrompt && !showAdvanced) {
+          setShowAdvanced(true); // Hiển thị tab nâng cao để user thấy Negative Prompt được tiêm vào
+        }
+      }
+
+    } catch (err: any) {
+      showAlert(err.message || 'Lỗi khi nội suy.');
+    } finally {
+      setIsInferring(false);
+    }
+  };
+
+  const handlePreGenerate = (count: number = 1) => {
+    if (!promptText.trim()) return;
+
+    if (targetRenderModel && targetRenderModel !== 'general') {
+      doGenerate(targetRenderModel, count);
+      return;
+    }
+
+    const models = settings.customModel.split(',').map(s => s.trim()).filter(s => s !== '');
+    if (models.length > 1) {
+      setAvailableModels(models);
+      setPendingCount(count);
+      setModelSelectionOpen(true);
+    } else {
+      doGenerate(models.length === 1 ? models[0] : '', count);
+    }
+  };
+
+  const doGenerate = async (selectedModel: string, count: number = 1) => {
+    setIsLoading(true);
+    setImageUrls([]);
+    
+    try {
+      setLoadingText(count > 1 ? `Đang phơi sáng ${count} biến thể...` : 'Đang phơi sáng (Tạo ảnh)...');
+      
+      const dim = getDimensions(aspectRatio);
+      
+      const promises = Array.from({ length: count }).map(async (_, idx) => {
+        let seed = seedText && seedText.trim() ? parseInt(seedText.trim(), 10) : null;
+        if (seed !== null && !isNaN(seed)) {
+            seed = seed + idx; // Tăng seed cho các biến thể để tránh tạo ra ảnh giống hệt nhau
+        } else {
+            seed = Math.floor(Math.random() * 1000000);
+        }
+        
+        const originalUrl = generateImageUrl(promptText, selectedModel, seed, dim.width, dim.height, negativePrompt);
+        
+        const res = await fetch(originalUrl);
+        if (!res.ok) throw new Error('Không thể khởi tạo tín hiệu tạo ảnh.');
+        const blob = await res.blob();
+        return { localUrl: URL.createObjectURL(blob), originalUrl, seed };
+      });
+
+      const results = await Promise.all(promises);
+      
+      setImageUrls(results.map(r => r.localUrl));
+      
+      addToGallery(
+        results.map(r => ({
+          id: Date.now().toString() + '_' + r.seed,
+          url: r.originalUrl,
+          prompt: promptText,
+          createdAt: Date.now()
+        }))
+      );
+      
+    } catch (err: any) {
+      showAlert(err.message || 'Quá trình tráng phim bị lỗi.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleUpscale = async (item: GalleryItem) => {
+    // Để upscale 4K trên Pollinations ta giữ nguyên URL nhưng tăng width, height lên 4K
+    // Parse the original URL to get prompt, model, seed? 
+    // Actually the easiest way is to use regex or string replace for width/height.
+    setIsLoading(true);
+    setLoadingText('Đang upscale 4K (Tái tạo chi tiết sắc nét)...');
+    try {
+      // Create new URL by replacing width=...&height=... with 4K resolution
+      let upscaledUrl = item.url.replace(/width=\d+/, 'width=3840').replace(/height=\d+/, 'height=2160');
+      
+      const res = await fetch(upscaledUrl);
+      if (!res.ok) throw new Error('Không thể upscale ảnh.');
+      const blob = await res.blob();
+      const localUrl = URL.createObjectURL(blob);
+      
+      setImageUrls([localUrl]);
+      setGalleryOpen(false);
+      showAlert("Upscale 4K thành công! Vui lòng tải xuống từ giao diện chính.");
+    } catch(err: any) {
+      showAlert(err.message || "Lỗi khi upscale ảnh.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDownload = (urlToDownload: string) => {
+    const a = document.createElement('a');
+    a.href = urlToDownload;
+    a.download = `CineTech_${Date.now()}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const handleSavePreset = (name: string) => {
+    if (!promptText.trim()) {
+      showAlert("Bạn cần nhập Prompt trước cài đặt thành Preset.");
+      return;
+    }
+    const newPreset: PresetItem = {
+      id: Date.now().toString(),
+      name,
+      prompt: promptText,
+      negativePrompt,
+      aspectRatio,
+      createdAt: Date.now()
+    };
+    const newPresets = [newPreset, ...presets];
+    setPresets(newPresets);
+    localStorage.setItem('cineTechPresets', JSON.stringify(newPresets));
+    setSavePresetOpen(false);
+    showAlert("Đã lưu Preset thành công!");
+  };
+
+  const handleDeletePreset = (id: string) => {
+    const newPresets = presets.filter(p => p.id !== id);
+    setPresets(newPresets);
+    localStorage.setItem('cineTechPresets', JSON.stringify(newPresets));
+  };
+
+  const syntaxWarnings = checkSyntaxWarnings(promptText, targetRenderModel);
+
+  return (
+    <div className="min-h-[100dvh] lg:h-[100dvh] lg:overflow-hidden bg-studio-950 flex flex-col font-sans selection:bg-accent selection:text-studio-950 text-studio-100">
+      {/* Header */}
+      <header className="glass-panel sticky top-0 z-40 flex justify-between items-center px-4 py-3 md:px-6 md:py-4 border-b border-studio-800/50">
+        <div className="flex items-center gap-3">
+          <div className="bg-accent text-studio-950 p-1.5 rounded-lg">
+            <Sparkles className="w-5 h-5" />
+          </div>
+          <h1 className="text-lg md:text-xl font-serif tracking-tight text-studio-50 font-semibold truncate max-w-[200px] md:max-w-none hidden sm:block">
+            AI-pollinations<span className="text-studio-400 font-light">.ai-STUDIO</span>
+          </h1>
+        </div>
+        <div className="flex items-center gap-1 md:gap-2">
+          <button 
+            onClick={() => setGalleryOpen(true)}
+            className="flex items-center gap-2 p-2 px-3 text-studio-400 hover:text-studio-100 hover:bg-studio-800/50 rounded-lg transition-all"
+            title="Bộ Sưu Tập"
+          >
+            <ImageIcon className="w-4 h-4 md:w-5 md:h-5" />
+            <span className="text-xs md:text-sm hidden md:inline font-medium">B.S.Tập</span>
+          </button>
+          <button 
+            onClick={() => setPresetsOpen(true)}
+            className="flex items-center gap-2 p-2 px-3 text-studio-400 hover:text-studio-100 hover:bg-studio-800/50 rounded-lg transition-all"
+            title="Presets của tôi"
+          >
+            <Bookmark className="w-4 h-4 md:w-5 md:h-5" />
+            <span className="text-xs md:text-sm hidden md:inline font-medium">Presets</span>
+          </button>
+          <button 
+            onClick={() => setHistoryOpen(true)}
+            className="flex items-center gap-2 p-2 px-3 text-studio-400 hover:text-studio-100 hover:bg-studio-800/50 rounded-lg transition-all"
+            title="Lịch sử Prompt"
+          >
+            <Clock className="w-4 h-4 md:w-5 md:h-5" />
+            <span className="text-xs md:text-sm hidden md:inline font-medium">Lịch sử</span>
+          </button>
+          <button 
+            id="btn-open-settings"
+            onClick={() => setSettingsOpen(true)}
+            className="p-2 px-3 text-studio-400 hover:text-studio-100 hover:bg-studio-800/50 rounded-lg transition-all"
+            title="Cài đặt"
+          >
+            <SettingsIcon className="w-4 h-4 md:w-5 md:h-5" />
+          </button>
+        </div>
+      </header>
+
+      <InstructionBanner />
+
+      <main className="flex-1 flex flex-col-reverse lg:flex-row w-full max-w-[1920px] mx-auto p-3 md:p-6 lg:p-8 gap-4 lg:gap-8 relative lg:overflow-hidden h-full">
+        
+        {/* Left Column: Controls */}
+        <div className="w-full lg:w-[400px] xl:w-[450px] shrink-0 flex flex-col gap-4 lg:gap-6 relative z-10 lg:h-full lg:overflow-hidden">
+          <div className="glass-panel rounded-2xl flex flex-col lg:h-full lg:overflow-hidden">
+            <div className="flex border-b border-white/5 p-1 relative shrink-0">
+               <button
+                  id="tab-mode-idea" 
+                  onClick={() => setMode('idea')}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 text-xs lg:text-sm font-medium rounded-xl transition-all ${mode === 'idea' ? 'bg-studio-800 text-studio-50 shadow-sm' : 'text-studio-400 hover:text-studio-100'}`}
+               >
+                 <Sparkles className="w-4 h-4" />
+                 Idea (Nội suy)
+               </button>
+               <button 
+                  id="tab-mode-direct"
+                  onClick={() => setMode('direct')}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 text-xs lg:text-sm font-medium rounded-xl transition-all ${mode === 'direct' ? 'bg-studio-800 text-studio-50 shadow-sm' : 'text-studio-400 hover:text-studio-100'}`}
+               >
+                 <ImageIcon className="w-4 h-4" />
+                 Direct (Prompt)
+               </button>
+            </div>
+            
+            <div className="p-4 lg:p-6 flex flex-col flex-1 gap-6 overflow-y-auto custom-scrollbar">
+              {mode === 'idea' ? (
+                <div className="space-y-5 relative">
+                  <div className="flex items-center gap-2 border-b border-white/5 pb-2">
+                    <span className="bg-studio-800 text-studio-100 text-[10px] font-mono px-2 py-1 rounded-md uppercase tracking-wider">Step 01</span>
+                    <h3 className="text-sm font-medium text-studio-100 tracking-wide">Nội suy Ý Tưởng</h3>
+                  </div>
+                  <div className="space-y-2 relative">
+                    <label className="block text-xs font-medium text-studio-400">
+                      Ý tưởng bối cảnh / Ảnh chung (Tiếng Việt)
+                    </label>
+                    <textarea 
+                      value={ideaText}
+                      onChange={(e) => setIdeaText(e.target.value)}
+                      disabled={isInferring}
+                      placeholder="VD: Một khung cảnh đứng ven hồ gươm buổi sáng mùa thu, phong cách điện ảnh..."
+                      className={`w-full h-24 ${isInferring ? 'bg-studio-800/50 animate-pulse' : 'bg-studio-900/50'} border border-white/10 rounded-xl p-3 text-studio-50 placeholder:text-studio-600 focus:outline-none focus:border-studio-400 focus:ring-1 focus:ring-studio-400 resize-none transition-all leading-relaxed text-sm custom-scrollbar`}
+                    />
+                    {isInferring && (
+                      <div className="absolute inset-0 pointer-events-none rounded-xl border border-studio-500/30 animate-shimmer"></div>
+                    )}
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="block text-xs font-medium text-studio-400">
+                      Profile / Ngoại hình Nhân vật (Tùy chọn)
+                    </label>
+                    <textarea 
+                      value={characterProfile}
+                      onChange={(e) => setCharacterProfile(e.target.value)}
+                      placeholder="VD: Nữ 20 tuổi, tóc ngắn màu hạt dẻ, mắt buồn, mặc áo khoác da màu đen..."
+                      className="w-full h-16 bg-studio-900 border border-studio-600 rounded-xl p-3 text-studio-100 placeholder:text-studio-600 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent resize-none transition-all leading-relaxed text-sm custom-scrollbar"
+                    />
+                  </div>
+                  
+                  {/* Reference Image Upload */}
+                  <div className="space-y-3">
+                    <label className="block text-xs font-medium text-studio-400 flex justify-between">
+                      <span>Ảnh gốc phác thảo (Tùy chọn)</span>
+                      {referenceImage && (
+                        <button onClick={() => setReferenceImage(null)} className="text-red-400 hover:text-red-300 text-[10px] flex items-center gap-1">
+                          <Trash2 className="w-3 h-3"/> Xóa ảnh
+                        </button>
+                      )}
+                    </label>
+                    
+                    {!referenceImage ? (
+                      <div 
+                        onClick={() => fileInputRef.current?.click()}
+                        className="w-full h-20 bg-studio-900 border border-dashed border-studio-600 hover:border-accent rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all group"
+                      >
+                        <Upload className="w-5 h-5 text-studio-500 group-hover:text-accent mb-1 transition-colors" />
+                        <span className="text-xs text-studio-500 group-hover:text-studio-300 transition-colors">Tải lên hoặc kéo thả ảnh</span>
+                        <input 
+                          type="file" 
+                          ref={fileInputRef} 
+                          className="hidden" 
+                          accept="image/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onload = (ev) => setReferenceImage(ev.target?.result as string);
+                              reader.readAsDataURL(file);
+                            }
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div className="relative w-24 h-24 rounded-lg overflow-hidden border border-studio-600">
+                        <img src={referenceImage} alt="Reference" className="w-full h-full object-cover" />
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <label className="block text-xs font-medium text-studio-400">
+                      Hướng dẫn nội suy (Rules) - Tùy chọn
+                    </label>
+                    <textarea 
+                      value={customRules}
+                      onChange={(e) => setCustomRules(e.target.value)}
+                      placeholder="VD: Bắt buộc dùng tone màu xanh teal và cam, góc máy low angle..."
+                      className="w-full h-12 bg-studio-900 border border-studio-600 rounded-xl p-3 text-studio-100 placeholder:text-studio-600 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent resize-none transition-all leading-relaxed text-sm custom-scrollbar"
+                    />
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <label className="block text-xs font-medium text-studio-400">
+                      Tối ưu Prompt cho Model:
+                    </label>
+                    <select
+                      value={targetRenderModel}
+                      onChange={(e) => setTargetRenderModel(e.target.value)}
+                      className="w-full bg-studio-900 border border-studio-600 rounded-lg p-2 text-studio-50 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                    >
+                      {OPTIMIZATION_MODELS.map(model => (
+                        <option key={model.value} value={model.value}>{model.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <button
+                    onClick={handlePreInferPrompt}
+                    disabled={isInferring || !ideaText.trim()}
+                    className="w-full py-3 bg-studio-800 hover:bg-studio-700 text-studio-50 font-medium rounded-xl transition-all border border-white/5 flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+                  >
+                    {isInferring ? (
+                      <><Aperture className="w-4 h-4 animate-spin" /> Đang xử lý...</>
+                    ) : (
+                      <><Sparkles className="w-4 h-4" /> Nội suy Prompt</>
+                    )}
+                  </button>
+                </div>
+              ) : null}
+
+              <div className="space-y-5 relative mt-2 border-t border-white/5 pt-4">
+                <div className="flex items-center gap-2 border-b border-white/5 pb-2">
+                  <span className="bg-studio-800 text-studio-100 text-[10px] font-mono px-2 py-1 rounded-md uppercase tracking-wider">Step {mode === 'idea' ? '02' : '01'}</span>
+                  <h3 className="text-sm font-medium text-studio-100 tracking-wide">Tạo Tác Phẩm</h3>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className="block text-xs font-medium text-studio-400">
+                      Prompt tạo ảnh (Tiếng Anh)
+                    </label>
+                    {mode === 'idea' && promptText && (
+                      <span className="text-[10px] text-accent bg-accent/10 px-2 py-0.5 rounded uppercase font-bold tracking-wider">Đã nội suy</span>
+                    )}
+                  </div>
+                  <textarea 
+                    value={promptText}
+                    onChange={(e) => setPromptText(e.target.value)}
+                    placeholder="A realistic portrait of..."
+                    className="w-full h-28 bg-studio-900 border border-studio-600 rounded-xl p-3 text-studio-50 placeholder:text-studio-600 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent resize-none transition-all leading-relaxed font-mono text-xs custom-scrollbar"
+                  />
+                  {syntaxWarnings.length > 0 && (
+                    <div className="bg-red-900/30 border border-red-500/30 rounded-lg p-3 text-xs text-red-300 mt-2 space-y-1">
+                      <p className="font-semibold mb-1 text-red-400">Cảnh báo Cú pháp:</p>
+                      <ul className="list-disc list-inside">
+                        {syntaxWarnings.map((warn, i) => (
+                          <li key={i}>{warn}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <label className="block text-xs font-medium text-studio-400">
+                    Tỷ lệ khung hình
+                  </label>
+                  <div className="flex bg-studio-900 border border-studio-600 rounded-lg p-1 gap-1">
+                    {(['1:1', '16:9', '9:16', '3:2', '2:3'] as const).map(ratio => (
+                      <button
+                        key={ratio}
+                        onClick={() => setAspectRatio(ratio)}
+                        className={`flex-1 py-2 text-xs font-medium rounded-md transition-all ${aspectRatio === ratio ? 'bg-studio-700 text-accent shadow-sm' : 'text-studio-400 hover:text-studio-100 hover:bg-studio-800'}`}
+                      >
+                        {ratio}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="pt-2 flex justify-between items-center">
+                  <button 
+                    onClick={() => setShowAdvanced(!showAdvanced)} 
+                    className="flex items-center gap-2 text-xs font-medium text-studio-400 hover:text-accent transition-colors"
+                  >
+                    <Sliders className="w-3 h-3" />
+                    Cài đặt nâng cao (Negative Prompt, API)
+                  </button>
+                  <button 
+                    onClick={() => {
+                        if (!promptText.trim()) {
+                           showAlert("Bạn cần có Prompt trước khi có thể lưu thành Preset.");
+                           return;
+                        }
+                        setSavePresetOpen(true);
+                    }} 
+                    title="Lưu Preset"
+                    className="flex items-center gap-2 text-xs font-medium text-studio-400 hover:text-accent transition-colors"
+                  >
+                    <Bookmark className="w-3 h-3" />
+                    Lưu Preset
+                  </button>
+                </div>
+
+                {showAdvanced && (
+                  <div className="space-y-3 bg-studio-900/30 p-3 rounded-lg border border-studio-700/50 animate-in fade-in duration-300">
+                    <div>
+                      <label className="block text-xs font-medium text-studio-400 mb-1">
+                        Negative Prompt (Tránh những chi tiết này)
+                      </label>
+                      <textarea 
+                        value={negativePrompt}
+                        onChange={(e) => setNegativePrompt(e.target.value)}
+                        placeholder="VD: ugly, deformed, text, watermark, bad anatomy..."
+                        className="w-full h-16 bg-studio-900 border border-studio-600 rounded-xl p-3 text-studio-50 placeholder:text-studio-600 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent resize-none transition-all text-xs custom-scrollbar"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-studio-400 mb-1">
+                        Seed (Gieo hạt - Tùy chọn)
+                      </label>
+                      <input 
+                        type="text"
+                        value={seedText}
+                        onChange={(e) => setSeedText(e.target.value)}
+                        placeholder="VD: 12345 (Để trống để random)"
+                        className="w-full bg-studio-900 border border-studio-600 rounded-xl px-3 py-2 text-studio-50 placeholder:text-studio-600 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all text-xs"
+                      />
+                      <p className="text-[10px] text-studio-500 italic mt-1">
+                        Lưu ý: Dùng Seed cố định giúp tạo ra ảnh nhất quán hơn khi cùng một Prompt và Model.
+                      </p>
+                    </div>
+                  </div>
+                )}
+                
+                <div className="flex flex-col gap-3">
+                  <button
+                    id="btn-generate-image"
+                    onClick={() => handlePreGenerate(1)}
+                    disabled={isLoading || !promptText.trim()}
+                    className="w-full py-3 sm:py-3.5 bg-accent hover:bg-accent-hover disabled:bg-studio-800 disabled:text-studio-500 text-studio-950 font-medium rounded-xl transition-all shadow-lg disabled:shadow-none flex items-center justify-center gap-2 text-sm"
+                  >
+                    {isLoading ? (
+                      <>
+                        <Aperture className="w-4 h-4 animate-spin" />
+                        <span>Đang xử lý...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Camera className="w-4 h-4" />
+                        <span>Tạo Ảnh Tác Phẩm</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column: Studio Canvas */}
+        <div className="flex-1 glass-panel rounded-2xl flex flex-col items-center justify-center relative overflow-hidden min-h-[50vh] md:min-h-[500px] lg:min-h-0 group">
+          
+          {isLoading && (
+            <div className="absolute inset-0 z-20 bg-studio-950/80 backdrop-blur-md flex flex-col items-center justify-center text-studio-100 animate-in fade-in duration-500">
+               <div className="relative w-24 h-24 md:w-32 md:h-32 mb-6 md:mb-8 flex items-center justify-center">
+                 <div className="absolute inset-0 border border-studio-100/10 rounded-full animate-[spin_10s_linear_infinite]"></div>
+                 <div className="absolute border-t-2 border-r-2 border-studio-100/30 rounded-full animate-[spin_3s_linear_infinite_reverse]" style={{ width: '80%', height: '80%' }}></div>
+                 <div className="absolute border-2 border-studio-100/50 rounded-full animate-lens" style={{ width: '60%', height: '60%' }}></div>
+                 <Sparkles className="w-8 h-8 md:w-10 md:h-10 text-studio-100 animate-[pulse_2s_linear_infinite]" />
+               </div>
+               <p className="font-serif italic text-lg md:text-xl tracking-wide animate-pulse mb-6 text-center px-4">{loadingText}</p>
+               <div className="w-32 md:w-48 h-1 bg-studio-800 rounded-full overflow-hidden">
+                 <div className="h-full bg-studio-100 animate-slide rounded-full"></div>
+               </div>
+            </div>
+          )}
+
+          {!imageUrls.length && !isLoading ? (
+            <div className="text-center text-studio-500 flex flex-col items-center p-8">
+              <div className="w-20 h-20 md:w-24 md:h-24 rounded-full bg-studio-800/50 flex items-center justify-center mb-4 md:mb-6 border border-white/5">
+                <ImageIcon className="w-8 h-8 md:w-10 md:h-10 opacity-30" />
+              </div>
+              <p className="font-serif text-lg md:text-xl text-studio-300">Khu vực Tráng Phim</p>
+              <p className="text-xs md:text-sm mt-2 text-studio-500 max-w-xs">Tác phẩm của bạn sẽ hiển thị với phong cách chân thực cao cấp nhất.</p>
+            </div>
+          ) : imageUrls.length > 0 ? (
+            <div className={`relative w-full h-full p-2 md:p-4 lg:p-8 overflow-y-auto custom-scrollbar ${imageUrls.length > 1 ? 'grid grid-cols-1 md:grid-cols-2 content-start' : 'flex'} gap-2 lg:gap-4 items-center justify-center`}>
+              {imageUrls.map((url, idx) => (
+                <div key={idx} className="relative group/img w-full h-full min-h-[300px] flex items-center justify-center bg-studio-900 border border-white/5 rounded-xl overflow-hidden aspect-square md:aspect-auto">
+                   <img 
+                     src={url} 
+                     alt={`Generated Artwork ${idx + 1}`} 
+                     className="w-full h-full object-contain xl:object-cover drop-shadow-2xl animate-in zoom-in-95 duration-700" 
+                   />
+                   <div className="absolute bottom-4 right-4 opacity-100 md:opacity-0 md:group-hover/img:opacity-100 transition-opacity duration-300">
+                     <button
+                       onClick={() => handleDownload(url)}
+                       className="bg-studio-950/80 hover:bg-studio-100 hover:text-studio-950 text-studio-100 p-2.5 md:p-3 rounded-xl shadow-xl backdrop-blur-md border border-white/10 transition-all flex items-center justify-center"
+                       title="Tải ảnh gốc"
+                     >
+                       <Download className="w-5 h-5 md:w-5 md:h-5" />
+                     </button>
+                   </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+        </div>
+      </main>
+
+      <SettingsDialog 
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        settings={settings}
+        onSettingsChange={handleSettingsChange}
+      />
+      
+      <AlertDialog 
+        isOpen={alertState.isOpen}
+        message={alertState.message}
+        onClose={() => setAlertState({ isOpen: false, message: '' })}
+      />
+
+      <ModelSelectionDialog
+        isOpen={modelSelectionOpen}
+        models={availableModels}
+        onSelect={(model) => doGenerate(model, pendingCount)}
+        onClose={() => setModelSelectionOpen(false)}
+      />
+
+      <ModelSelectionDialog
+        title="Chọn Model Gemini"
+        isOpen={geminiModelSelectionOpen}
+        models={availableGeminiModels}
+        onSelect={(model) => doInferPrompt(model)}
+        onClose={() => setGeminiModelSelectionOpen(false)}
+      />
+
+      <PromptHistoryDialog 
+        isOpen={historyOpen}
+        history={history}
+        onClose={() => setHistoryOpen(false)}
+        onSelectPattern={(item) => {
+          setMode('idea');
+          setIdeaText(item.idea);
+          setPromptText(item.prompt);
+          setCustomRules(item.rules);
+          setCharacterProfile(item.characterProfile || '');
+        }}
+      />
+      
+      <GalleryDialog
+        isOpen={galleryOpen}
+        gallery={gallery}
+        onClose={() => setGalleryOpen(false)}
+        onUsePrompt={(prompt) => {
+          setMode('direct');
+          setPromptText(prompt);
+        }}
+        onUpscale={handleUpscale}
+        onDelete={(id) => {
+          const newGallery = gallery.filter((item) => item.id !== id);
+          setGallery(newGallery);
+          localStorage.setItem('cineTechGallery', JSON.stringify(newGallery));
+        }}
+      />
+      
+      <SavePresetDialog 
+        isOpen={savePresetOpen}
+        onClose={() => setSavePresetOpen(false)}
+        onSave={handleSavePreset}
+      />
+      
+      <PresetsDialog 
+        isOpen={presetsOpen}
+        presets={presets}
+        onClose={() => setPresetsOpen(false)}
+        onDeletePreset={handleDeletePreset}
+        onApplyPreset={(preset) => {
+           setMode('direct');
+           setPromptText(preset.prompt);
+           setNegativePrompt(preset.negativePrompt || '');
+           setAspectRatio(preset.aspectRatio as any);
+        }}
+      />
+    </div>
+  );
+}
+
+export default App;

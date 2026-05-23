@@ -1,0 +1,83 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-studio-950: #030303;
+  --color-studio-900: #0a0a0a;
+  --color-studio-800: #121212;
+  --color-studio-700: #1a1a1a;
+  --color-studio-600: #262626;
+  --color-studio-500: #404040;
+  --color-studio-400: #737373;
+  --color-studio-300: #a3a3a3;
+  --color-studio-200: #d4d4d4;
+  --color-studio-100: #e5e5e5;
+  --color-studio-50: #fafafa;
+  
+  --color-accent: #f5f5f5; /* Clean white accent instead of gold/brown for a modern tech feel */
+  --color-accent-hover: #d4d4d4;
+}
+
+@layer utilities {
+  .animate-slide {
+    animation: slide 1.5s infinite ease-in-out alternate;
+  }
+  .animate-lens {
+    animation: lens 4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+  .animate-shimmer {
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
+    background-size: 200% 100%;
+    animation: shimmer 2s infinite linear;
+  }
+  .glass-panel {
+    background: rgba(18, 18, 18, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+}
+
+@keyframes slide {
+  0% { transform: translateX(0); width: 30%; }
+  100% { transform: translateX(233%); width: 30%; }
+}
+
+@keyframes lens {
+  0%, 100% { transform: scale(0.95); opacity: 0.6; }
+  50% { transform: scale(1.05); opacity: 1; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--color-studio-600);
+  border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-studio-400);
+}
+
+body {
+  background-color: var(--color-studio-950);
+  color: var(--color-studio-50);
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
