@@ -220,6 +220,8 @@ function App() {
 
   const doGenerate = async (selectedModel: string, count: number = 1) => {
     setIsLoading(true);
+    // Tối ưu thuật toán dọn rác (Garbage Collection): Xóa Blob URL cũ để tránh rò rỉ bộ nhớ
+    imageUrls.forEach(url => URL.revokeObjectURL(url));
     setImageUrls([]);
     
     try {
@@ -278,6 +280,8 @@ function App() {
       const blob = await res.blob();
       const localUrl = URL.createObjectURL(blob);
       
+      // Dọn rác Blob cũ trước khi upscale
+      imageUrls.forEach(url => URL.revokeObjectURL(url));
       setImageUrls([localUrl]);
       setGalleryOpen(false);
       showAlert("Upscale 4K thành công! Vui lòng tải xuống từ giao diện chính.");
@@ -328,7 +332,10 @@ function App() {
   return (
     <div className="min-h-[100dvh] lg:h-[100dvh] lg:overflow-hidden bg-studio-950 flex flex-col font-sans selection:bg-accent selection:text-studio-950 text-studio-100">
       {/* Header */}
-      <header className="glass-panel sticky top-0 z-40 flex justify-between items-center px-4 py-3 md:px-6 md:py-4 border-b border-studio-800/50">
+      <header 
+        className="glass-panel sticky top-0 z-40 flex justify-between items-center px-4 md:px-6 pb-3 pt-3 md:pb-4 md:pt-4 border-b border-studio-800/50"
+        style={{ paddingTop: 'max(env(safe-area-inset-top), 0.75rem)' }}
+      >
         <div className="flex items-center gap-3">
           <div className="bg-accent text-studio-950 p-1.5 rounded-lg">
             <Sparkles className="w-5 h-5" />
@@ -747,6 +754,16 @@ function App() {
           setCustomRules(item.rules);
           setCharacterProfile(item.characterProfile || '');
         }}
+        onDelete={(id) => {
+          const newHistory = history.filter(item => item.id !== id);
+          setHistory(newHistory);
+          localStorage.setItem('cineTechHistory', JSON.stringify(newHistory));
+        }}
+        onDeleteMultiple={(ids) => {
+          const newHistory = history.filter(item => !ids.includes(item.id));
+          setHistory(newHistory);
+          localStorage.setItem('cineTechHistory', JSON.stringify(newHistory));
+        }}
       />
       
       <GalleryDialog
@@ -760,6 +777,11 @@ function App() {
         onUpscale={handleUpscale}
         onDelete={(id) => {
           const newGallery = gallery.filter((item) => item.id !== id);
+          setGallery(newGallery);
+          localStorage.setItem('cineTechGallery', JSON.stringify(newGallery));
+        }}
+        onDeleteMultiple={(ids) => {
+          const newGallery = gallery.filter((item) => !ids.includes(item.id));
           setGallery(newGallery);
           localStorage.setItem('cineTechGallery', JSON.stringify(newGallery));
         }}

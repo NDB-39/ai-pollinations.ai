@@ -12,12 +12,3 @@ export function generateImageUrl(prompt: string, model?: string, seed?: number, 
   }
   return url;
 }
-
-export async function fetchImageBlob(url: string): Promise<string> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error("Không thể tải ảnh. Vui lòng thử lại.");
-  }
-  const blob = await response.blob();
-  return URL.createObjectURL(blob);
-}
