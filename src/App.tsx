@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, Settings as SettingsIcon, Image as ImageIcon, Sparkles, Download, Aperture, Clock, Upload, Trash2, Sliders, Bookmark, List } from 'lucide-react';
+import { Camera, Settings as SettingsIcon, Image as ImageIcon, Sparkles, Download, Aperture, Clock, Upload, Trash2, Sliders, Bookmark, List, Type } from 'lucide-react';
 import { InstructionBanner } from './components/InstructionBanner';
 import { SettingsDialog, Settings } from './components/SettingsDialog';
 import { AlertDialog } from './components/AlertDialog';
@@ -63,6 +63,9 @@ function App() {
   const [presets, setPresets] = useState<PresetItem[]>([]);
   const [aspectRatio, setAspectRatio] = useState<'1:1' | '16:9' | '9:16' | '3:2' | '2:3'>('1:1');
   
+  // Font scale state
+  const [fontScale, setFontScale] = useState<number>(100);
+  
   const [alertState, setAlertState] = useState({ isOpen: false, message: '' });
   
   const [settings, setSettings] = useState<Settings>({
@@ -72,6 +75,19 @@ function App() {
     geminiModel: '',
     proxyModel: 'openai-large' // Default pollination model
   });
+
+  // Apply font scale to html element
+  useEffect(() => {
+    document.documentElement.style.fontSize = `${fontScale}%`;
+  }, [fontScale]);
+
+  const toggleFontScale = () => {
+    setFontScale(prev => {
+      if (prev === 100) return 110;
+      if (prev === 110) return 125;
+      return 100; // Reset
+    });
+  };
 
   // Khôi phục cài đặt từ localStorage
   useEffect(() => {
@@ -346,6 +362,18 @@ function App() {
             <Clock className="w-4 h-4 md:w-5 md:h-5" />
             <span className="text-xs md:text-sm hidden md:inline font-medium">Lịch sử</span>
           </button>
+          
+          <div className="w-px h-6 bg-white/10 mx-1 hidden sm:block"></div>
+
+          <button 
+            onClick={toggleFontScale}
+            className="flex lg:hidden items-center gap-1 p-2 px-2 md:px-3 text-studio-400 hover:text-accent hover:bg-studio-800/50 rounded-lg transition-all"
+            title="Điều chỉnh cỡ chữ"
+          >
+            <Type className="w-4 h-4 md:w-5 md:h-5" />
+            <span className="text-[10px] md:text-xs font-mono font-medium">{fontScale}%</span>
+          </button>
+
           <button 
             id="btn-open-settings"
             onClick={() => setSettingsOpen(true)}
@@ -368,17 +396,17 @@ function App() {
                <button
                   id="tab-mode-idea" 
                   onClick={() => setMode('idea')}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 text-xs lg:text-sm font-medium rounded-xl transition-all ${mode === 'idea' ? 'bg-studio-800 text-studio-50 shadow-sm' : 'text-studio-400 hover:text-studio-100'}`}
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 text-sm lg:text-base font-medium rounded-xl transition-all ${mode === 'idea' ? 'bg-studio-800 text-studio-50 shadow-sm' : 'text-studio-400 hover:text-studio-100'}`}
                >
-                 <Sparkles className="w-4 h-4" />
+                 <Sparkles className="w-5 h-5" />
                  Idea (Nội suy)
                </button>
                <button 
                   id="tab-mode-direct"
                   onClick={() => setMode('direct')}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 text-xs lg:text-sm font-medium rounded-xl transition-all ${mode === 'direct' ? 'bg-studio-800 text-studio-50 shadow-sm' : 'text-studio-400 hover:text-studio-100'}`}
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 text-sm lg:text-base font-medium rounded-xl transition-all ${mode === 'direct' ? 'bg-studio-800 text-studio-50 shadow-sm' : 'text-studio-400 hover:text-studio-100'}`}
                >
-                 <ImageIcon className="w-4 h-4" />
+                 <ImageIcon className="w-5 h-5" />
                  Direct (Prompt)
                </button>
             </div>
@@ -387,11 +415,11 @@ function App() {
               {mode === 'idea' ? (
                 <div className="space-y-5 relative">
                   <div className="flex items-center gap-2 border-b border-white/5 pb-2">
-                    <span className="bg-studio-800 text-studio-100 text-[10px] font-mono px-2 py-1 rounded-md uppercase tracking-wider">Step 01</span>
-                    <h3 className="text-sm font-medium text-studio-100 tracking-wide">Nội suy Ý Tưởng</h3>
+                    <span className="bg-studio-800 text-studio-100 text-xs md:text-sm font-mono px-2 py-1 rounded-md uppercase tracking-wider">Step 01</span>
+                    <h3 className="text-base font-medium text-studio-100 tracking-wide">Nội suy Ý Tưởng</h3>
                   </div>
                   <div className="space-y-2 relative">
-                    <label className="block text-xs font-medium text-studio-400">
+                    <label className="block text-sm font-medium text-studio-400">
                       Ý tưởng bối cảnh / Ảnh chung (Tiếng Việt)
                     </label>
                     <textarea 
@@ -399,7 +427,7 @@ function App() {
                       onChange={(e) => setIdeaText(e.target.value)}
                       disabled={isInferring}
                       placeholder="VD: Một khung cảnh đứng ven hồ gươm buổi sáng mùa thu, phong cách điện ảnh..."
-                      className={`w-full h-24 ${isInferring ? 'bg-studio-800/50 animate-pulse' : 'bg-studio-900/50'} border border-white/10 rounded-xl p-3 text-studio-50 placeholder:text-studio-600 focus:outline-none focus:border-studio-400 focus:ring-1 focus:ring-studio-400 resize-none transition-all leading-relaxed text-sm custom-scrollbar`}
+                      className={`w-full h-24 ${isInferring ? 'bg-studio-800/50 animate-pulse' : 'bg-studio-900/50'} border border-white/10 rounded-xl p-3 text-studio-50 placeholder:text-studio-600 focus:outline-none focus:border-studio-400 focus:ring-1 focus:ring-studio-400 resize-none transition-all leading-relaxed text-base custom-scrollbar`}
                     />
                     {isInferring && (
                       <div className="absolute inset-0 pointer-events-none rounded-xl border border-studio-500/30 animate-shimmer"></div>
@@ -407,23 +435,23 @@ function App() {
                   </div>
 
                   <div className="space-y-3">
-                    <label className="block text-xs font-medium text-studio-400">
+                    <label className="block text-sm font-medium text-studio-400">
                       Profile / Ngoại hình Nhân vật (Tùy chọn)
                     </label>
                     <textarea 
                       value={characterProfile}
                       onChange={(e) => setCharacterProfile(e.target.value)}
                       placeholder="VD: Nữ 20 tuổi, tóc ngắn màu hạt dẻ, mắt buồn, mặc áo khoác da màu đen..."
-                      className="w-full h-16 bg-studio-900 border border-studio-600 rounded-xl p-3 text-studio-100 placeholder:text-studio-600 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent resize-none transition-all leading-relaxed text-sm custom-scrollbar"
+                      className="w-full h-16 bg-studio-900 border border-studio-600 rounded-xl p-3 text-studio-100 placeholder:text-studio-600 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent resize-none transition-all leading-relaxed text-base custom-scrollbar"
                     />
                   </div>
                   
                   {/* Reference Image Upload */}
                   <div className="space-y-3">
-                    <label className="block text-xs font-medium text-studio-400 flex justify-between">
+                    <label className="block text-sm font-medium text-studio-400 flex justify-between">
                       <span>Ảnh gốc phác thảo (Tùy chọn)</span>
                       {referenceImage && (
-                        <button onClick={() => setReferenceImage(null)} className="text-red-400 hover:text-red-300 text-[10px] flex items-center gap-1">
+                        <button onClick={() => setReferenceImage(null)} className="text-red-400 hover:text-red-300 text-xs flex items-center gap-1">
                           <Trash2 className="w-3 h-3"/> Xóa ảnh
                         </button>
                       )}
@@ -432,10 +460,10 @@ function App() {
                     {!referenceImage ? (
                       <div 
                         onClick={() => fileInputRef.current?.click()}
-                        className="w-full h-20 bg-studio-900 border border-dashed border-studio-600 hover:border-accent rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all group"
+                        className="w-full h-24 bg-studio-900 border border-dashed border-studio-600 hover:border-accent rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all group p-4"
                       >
-                        <Upload className="w-5 h-5 text-studio-500 group-hover:text-accent mb-1 transition-colors" />
-                        <span className="text-xs text-studio-500 group-hover:text-studio-300 transition-colors">Tải lên hoặc kéo thả ảnh</span>
+                        <Upload className="w-6 h-6 text-studio-500 group-hover:text-accent mb-2 transition-colors" />
+                        <span className="text-sm text-studio-500 group-hover:text-studio-300 transition-colors text-center">Tải lên hoặc kéo thả ảnh</span>
                         <input 
                           type="file" 
                           ref={fileInputRef} 
@@ -459,25 +487,25 @@ function App() {
                   </div>
                   
                   <div className="space-y-3">
-                    <label className="block text-xs font-medium text-studio-400">
+                    <label className="block text-sm font-medium text-studio-400">
                       Hướng dẫn nội suy (Rules) - Tùy chọn
                     </label>
                     <textarea 
                       value={customRules}
                       onChange={(e) => setCustomRules(e.target.value)}
                       placeholder="VD: Bắt buộc dùng tone màu xanh teal và cam, góc máy low angle..."
-                      className="w-full h-12 bg-studio-900 border border-studio-600 rounded-xl p-3 text-studio-100 placeholder:text-studio-600 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent resize-none transition-all leading-relaxed text-sm custom-scrollbar"
+                      className="w-full h-16 bg-studio-900 border border-studio-600 rounded-xl p-3 text-studio-100 placeholder:text-studio-600 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent resize-none transition-all leading-relaxed text-base custom-scrollbar"
                     />
                   </div>
                   
                   <div className="space-y-3">
-                    <label className="block text-xs font-medium text-studio-400">
+                    <label className="block text-sm font-medium text-studio-400">
                       Tối ưu Prompt cho Model:
                     </label>
                     <select
                       value={targetRenderModel}
                       onChange={(e) => setTargetRenderModel(e.target.value)}
-                      className="w-full bg-studio-900 border border-studio-600 rounded-lg p-2 text-studio-50 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                      className="w-full bg-studio-900 border border-studio-600 rounded-lg p-3 text-studio-50 text-base focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
                     >
                       {OPTIMIZATION_MODELS.map(model => (
                         <option key={model.value} value={model.value}>{model.label}</option>
@@ -488,39 +516,39 @@ function App() {
                   <button
                     onClick={handlePreInferPrompt}
                     disabled={isInferring || !ideaText.trim()}
-                    className="w-full py-3 bg-studio-800 hover:bg-studio-700 text-studio-50 font-medium rounded-xl transition-all border border-white/5 flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+                    className="w-full py-4 bg-studio-800 hover:bg-studio-700 text-studio-50 font-medium rounded-xl transition-all border border-white/5 flex items-center justify-center gap-2 text-base disabled:opacity-50 mt-4"
                   >
                     {isInferring ? (
-                      <><Aperture className="w-4 h-4 animate-spin" /> Đang xử lý...</>
+                      <><Aperture className="w-5 h-5 animate-spin" /> Đang xử lý...</>
                     ) : (
-                      <><Sparkles className="w-4 h-4" /> Nội suy Prompt</>
+                      <><Sparkles className="w-5 h-5" /> Nội suy Prompt</>
                     )}
                   </button>
                 </div>
               ) : null}
 
-              <div className="space-y-5 relative mt-2 border-t border-white/5 pt-4">
+              <div className="space-y-5 relative mt-4 border-t border-white/5 pt-6">
                 <div className="flex items-center gap-2 border-b border-white/5 pb-2">
-                  <span className="bg-studio-800 text-studio-100 text-[10px] font-mono px-2 py-1 rounded-md uppercase tracking-wider">Step {mode === 'idea' ? '02' : '01'}</span>
-                  <h3 className="text-sm font-medium text-studio-100 tracking-wide">Tạo Tác Phẩm</h3>
+                  <span className="bg-studio-800 text-studio-100 text-xs md:text-sm font-mono px-2 py-1 rounded-md uppercase tracking-wider">Step {mode === 'idea' ? '02' : '01'}</span>
+                  <h3 className="text-base font-medium text-studio-100 tracking-wide">Tạo Tác Phẩm</h3>
                 </div>
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
-                    <label className="block text-xs font-medium text-studio-400">
+                    <label className="block text-sm font-medium text-studio-400">
                       Prompt tạo ảnh (Tiếng Anh)
                     </label>
                     {mode === 'idea' && promptText && (
-                      <span className="text-[10px] text-accent bg-accent/10 px-2 py-0.5 rounded uppercase font-bold tracking-wider">Đã nội suy</span>
+                      <span className="text-xs text-accent bg-accent/10 px-2 py-1 rounded uppercase font-bold tracking-wider">Đã nội suy</span>
                     )}
                   </div>
                   <textarea 
                     value={promptText}
                     onChange={(e) => setPromptText(e.target.value)}
                     placeholder="A realistic portrait of..."
-                    className="w-full h-28 bg-studio-900 border border-studio-600 rounded-xl p-3 text-studio-50 placeholder:text-studio-600 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent resize-none transition-all leading-relaxed font-mono text-xs custom-scrollbar"
+                    className="w-full h-32 bg-studio-900 border border-studio-600 rounded-xl p-4 text-studio-50 placeholder:text-studio-600 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent resize-none transition-all leading-relaxed font-mono text-sm custom-scrollbar"
                   />
                   {syntaxWarnings.length > 0 && (
-                    <div className="bg-red-900/30 border border-red-500/30 rounded-lg p-3 text-xs text-red-300 mt-2 space-y-1">
+                    <div className="bg-red-900/30 border border-red-500/30 rounded-lg p-3 text-sm text-red-300 mt-2 space-y-1">
                       <p className="font-semibold mb-1 text-red-400">Cảnh báo Cú pháp:</p>
                       <ul className="list-disc list-inside">
                         {syntaxWarnings.map((warn, i) => (
@@ -532,7 +560,7 @@ function App() {
                 </div>
 
                 <div className="space-y-3">
-                  <label className="block text-xs font-medium text-studio-400">
+                  <label className="block text-sm font-medium text-studio-400">
                     Tỷ lệ khung hình
                   </label>
                   <div className="flex bg-studio-900 border border-studio-600 rounded-lg p-1 gap-1">
@@ -540,7 +568,7 @@ function App() {
                       <button
                         key={ratio}
                         onClick={() => setAspectRatio(ratio)}
-                        className={`flex-1 py-2 text-xs font-medium rounded-md transition-all ${aspectRatio === ratio ? 'bg-studio-700 text-accent shadow-sm' : 'text-studio-400 hover:text-studio-100 hover:bg-studio-800'}`}
+                        className={`flex-1 py-3 text-sm font-medium rounded-md transition-all ${aspectRatio === ratio ? 'bg-studio-700 text-accent shadow-sm' : 'text-studio-400 hover:text-studio-100 hover:bg-studio-800'}`}
                       >
                         {ratio}
                       </button>
@@ -548,12 +576,12 @@ function App() {
                   </div>
                 </div>
 
-                <div className="pt-2 flex justify-between items-center">
+                <div className="pt-2 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                   <button 
                     onClick={() => setShowAdvanced(!showAdvanced)} 
-                    className="flex items-center gap-2 text-xs font-medium text-studio-400 hover:text-accent transition-colors"
+                    className="flex items-center gap-2 text-sm font-medium text-studio-400 hover:text-accent transition-colors"
                   >
-                    <Sliders className="w-3 h-3" />
+                    <Sliders className="w-4 h-4" />
                     Cài đặt nâng cao (Negative Prompt, API)
                   </button>
                   <button 
@@ -565,28 +593,28 @@ function App() {
                         setSavePresetOpen(true);
                     }} 
                     title="Lưu Preset"
-                    className="flex items-center gap-2 text-xs font-medium text-studio-400 hover:text-accent transition-colors"
+                    className="flex items-center gap-2 text-sm font-medium text-studio-400 hover:text-accent transition-colors"
                   >
-                    <Bookmark className="w-3 h-3" />
+                    <Bookmark className="w-4 h-4" />
                     Lưu Preset
                   </button>
                 </div>
 
                 {showAdvanced && (
-                  <div className="space-y-3 bg-studio-900/30 p-3 rounded-lg border border-studio-700/50 animate-in fade-in duration-300">
+                  <div className="space-y-4 bg-studio-900/30 p-4 rounded-lg border border-studio-700/50 animate-in fade-in duration-300">
                     <div>
-                      <label className="block text-xs font-medium text-studio-400 mb-1">
+                      <label className="block text-sm font-medium text-studio-400 mb-2">
                         Negative Prompt (Tránh những chi tiết này)
                       </label>
                       <textarea 
                         value={negativePrompt}
                         onChange={(e) => setNegativePrompt(e.target.value)}
                         placeholder="VD: ugly, deformed, text, watermark, bad anatomy..."
-                        className="w-full h-16 bg-studio-900 border border-studio-600 rounded-xl p-3 text-studio-50 placeholder:text-studio-600 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent resize-none transition-all text-xs custom-scrollbar"
+                        className="w-full h-20 bg-studio-900 border border-studio-600 rounded-xl p-4 text-studio-50 placeholder:text-studio-600 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent resize-none transition-all text-sm custom-scrollbar"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-studio-400 mb-1">
+                      <label className="block text-sm font-medium text-studio-400 mb-2">
                         Seed (Gieo hạt - Tùy chọn)
                       </label>
                       <input 
@@ -594,30 +622,30 @@ function App() {
                         value={seedText}
                         onChange={(e) => setSeedText(e.target.value)}
                         placeholder="VD: 12345 (Để trống để random)"
-                        className="w-full bg-studio-900 border border-studio-600 rounded-xl px-3 py-2 text-studio-50 placeholder:text-studio-600 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all text-xs"
+                        className="w-full bg-studio-900 border border-studio-600 rounded-xl px-4 py-3 text-studio-50 placeholder:text-studio-600 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all text-sm"
                       />
-                      <p className="text-[10px] text-studio-500 italic mt-1">
+                      <p className="text-xs text-studio-500 italic mt-2">
                         Lưu ý: Dùng Seed cố định giúp tạo ra ảnh nhất quán hơn khi cùng một Prompt và Model.
                       </p>
                     </div>
                   </div>
                 )}
                 
-                <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-3 mt-4">
                   <button
                     id="btn-generate-image"
                     onClick={() => handlePreGenerate(1)}
                     disabled={isLoading || !promptText.trim()}
-                    className="w-full py-3 sm:py-3.5 bg-accent hover:bg-accent-hover disabled:bg-studio-800 disabled:text-studio-500 text-studio-950 font-medium rounded-xl transition-all shadow-lg disabled:shadow-none flex items-center justify-center gap-2 text-sm"
+                    className="w-full py-4 bg-accent hover:bg-accent-hover disabled:bg-studio-800 disabled:text-studio-500 text-studio-950 font-semibold rounded-xl transition-all shadow-lg disabled:shadow-none flex items-center justify-center gap-2 text-base uppercase tracking-wide"
                   >
                     {isLoading ? (
                       <>
-                        <Aperture className="w-4 h-4 animate-spin" />
+                        <Aperture className="w-5 h-5 animate-spin" />
                         <span>Đang xử lý...</span>
                       </>
                     ) : (
                       <>
-                        <Camera className="w-4 h-4" />
+                        <Camera className="w-5 h-5" />
                         <span>Tạo Ảnh Tác Phẩm</span>
                       </>
                     )}
@@ -652,7 +680,7 @@ function App() {
                 <ImageIcon className="w-8 h-8 md:w-10 md:h-10 opacity-30" />
               </div>
               <p className="font-serif text-lg md:text-xl text-studio-300">Khu vực Tráng Phim</p>
-              <p className="text-xs md:text-sm mt-2 text-studio-500 max-w-xs">Tác phẩm của bạn sẽ hiển thị với phong cách chân thực cao cấp nhất.</p>
+              <p className="text-sm md:text-base mt-3 text-studio-500 max-w-xs">Tác phẩm của bạn sẽ hiển thị với phong cách chân thực cao cấp nhất.</p>
             </div>
           ) : imageUrls.length > 0 ? (
             <div className={`relative w-full h-full p-2 md:p-4 lg:p-8 overflow-y-auto custom-scrollbar ${imageUrls.length > 1 ? 'grid grid-cols-1 md:grid-cols-2 content-start' : 'flex'} gap-2 lg:gap-4 items-center justify-center`}>
@@ -666,10 +694,10 @@ function App() {
                    <div className="absolute bottom-4 right-4 opacity-100 md:opacity-0 md:group-hover/img:opacity-100 transition-opacity duration-300">
                      <button
                        onClick={() => handleDownload(url)}
-                       className="bg-studio-950/80 hover:bg-studio-100 hover:text-studio-950 text-studio-100 p-2.5 md:p-3 rounded-xl shadow-xl backdrop-blur-md border border-white/10 transition-all flex items-center justify-center"
+                       className="bg-studio-950/80 hover:bg-studio-100 hover:text-studio-950 text-studio-100 p-3 md:p-3 rounded-xl shadow-xl backdrop-blur-md border border-white/10 transition-all flex items-center justify-center"
                        title="Tải ảnh gốc"
                      >
-                       <Download className="w-5 h-5 md:w-5 md:h-5" />
+                       <Download className="w-6 h-6 md:w-5 md:h-5" />
                      </button>
                    </div>
                 </div>
