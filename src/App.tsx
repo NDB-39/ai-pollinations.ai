@@ -8,6 +8,7 @@ import { PromptHistoryDialog, PromptHistoryItem } from './components/PromptHisto
 import { GalleryDialog, GalleryItem } from './components/GalleryDialog';
 import { SavePresetDialog } from './components/SavePresetDialog';
 import { PresetsDialog, PresetItem } from './components/PresetsDialog';
+import { ImageZoomModal } from './components/ImageZoomModal';
 import { enhancePromptWithGemini } from './services/geminiService';
 import { enhancePromptWithProxy } from './services/proxyService';
 import { generateImageUrl } from './services/imageService';
@@ -26,6 +27,12 @@ const getDimensions = (ratio: string) => {
   }
 };
 
+export interface GeneratedImage {
+  localUrl: string;
+  originalUrl: string;
+  seed: number;
+}
+
 function App() {
   const [mode, setMode] = useState<'idea' | 'direct'>('idea');
   const [ideaText, setIdeaText] = useState('');
@@ -40,8 +47,8 @@ function App() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [targetRenderModel, setTargetRenderModel] = useState('flux');
   
-  const [currentImageUrl, setCurrentImageUrl] = useState<string | null>(null);
-  const [imageUrls, setImageUrls] = useState<string[]>([]);
+  const [currentZoomImage, setCurrentZoomImage] = useState<{ url: string, metadata?: any } | null>(null);
+  const [imageUrls, setImageUrls] = useState<GeneratedImage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isInferring, setIsInferring] = useState(false);
   const [loadingText, setLoadingText] = useState('');
@@ -221,7 +228,7 @@ function App() {
   const doGenerate = async (selectedModel: string, count: number = 1) => {
     setIsLoading(true);
     // Tối ưu thuật toán dọn rác (Garbage Collection): Xóa Blob URL cũ để tránh rò rỉ bộ nhớ
-    imageUrls.forEach(url => URL.revokeObjectURL(url));
+    imageUrls.forEach(img => URL.revokeObjectURL(img.localUrl));
     setImageUrls([]);
     
     try {
@@ -239,15 +246,47 @@ function App() {
         
         const originalUrl = generateImageUrl(promptText, selectedModel, seed, dim.width, dim.height, negativePrompt);
         
-        const res = await fetch(originalUrl);
-        if (!res.ok) throw new Error('Không thể khởi tạo tín hiệu tạo ảnh.');
+        let res;
+        let retries = 0;
+        const maxRetries = 2;
+        
+        while (retries <= maxRetries) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+            
+            res = await fetch(originalUrl, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            
+            if (res.ok) {
+              break;
+            } else if (res.status >= 500 && retries < maxRetries) {
+              console.warn(`Lỗi 5xx (HTTP ${res.status}), đang thử lại lần ${retries + 1}...`);
+              retries++;
+              await new Promise(r => setTimeout(r, 1500 * retries));
+              continue;
+            } else {
+              throw new Error(`Không thể khởi tạo tín hiệu tạo ảnh. (Lỗi HTTP ${res.status})`);
+            }
+          } catch (err: any) {
+            if ((err.name === 'AbortError' || err.message.toLowerCase().includes('timeout') || err.message.toLowerCase().includes('network') || err.message.toLowerCase().includes('failed to fetch')) && retries < maxRetries) {
+              console.warn(`Lỗi mạng/timeout, đang thử lại lần ${retries + 1}...`);
+              retries++;
+              await new Promise(r => setTimeout(r, 1500 * retries));
+              continue;
+            }
+            throw err;
+          }
+        }
+        
+        if (!res || !res.ok) throw new Error('Không thể khởi tạo tín hiệu tạo ảnh sau nhiều lần thử.');
         const blob = await res.blob();
         return { localUrl: URL.createObjectURL(blob), originalUrl, seed };
       });
 
       const results = await Promise.all(promises);
       
-      setImageUrls(results.map(r => r.localUrl));
+      setImageUrls(results);
       
       addToGallery(
         results.map(r => ({
@@ -281,8 +320,13 @@ function App() {
       const localUrl = URL.createObjectURL(blob);
       
       // Dọn rác Blob cũ trước khi upscale
-      imageUrls.forEach(url => URL.revokeObjectURL(url));
-      setImageUrls([localUrl]);
+      imageUrls.forEach(img => URL.revokeObjectURL(img.localUrl));
+      
+      // Khôi phục seed từ id
+      const seedParts = item.id.split('_');
+      const seed = parseInt(seedParts[seedParts.length - 1], 10);
+      
+      setImageUrls([{ localUrl, originalUrl: upscaledUrl, seed }]);
       setGalleryOpen(false);
       showAlert("Upscale 4K thành công! Vui lòng tải xuống từ giao diện chính.");
     } catch(err: any) {
@@ -691,16 +735,38 @@ function App() {
             </div>
           ) : imageUrls.length > 0 ? (
             <div className={`relative w-full h-full p-2 md:p-4 lg:p-8 overflow-y-auto custom-scrollbar ${imageUrls.length > 1 ? 'grid grid-cols-1 md:grid-cols-2 content-start' : 'flex'} gap-2 lg:gap-4 items-center justify-center`}>
-              {imageUrls.map((url, idx) => (
-                <div key={idx} className="relative group/img w-full h-full min-h-[300px] flex items-center justify-center bg-studio-900 border border-white/5 rounded-xl overflow-hidden aspect-square md:aspect-auto">
+              {imageUrls.map((img, idx) => {
+                // Parse the original URL to extract model and dimensions
+                let model = '';
+                let width = 0;
+                let height = 0;
+                try {
+                  const urlObj = new URL(img.originalUrl);
+                  model = decodeURIComponent(urlObj.searchParams.get('model') || '');
+                  width = parseInt(urlObj.searchParams.get('width') || '0', 10);
+                  height = parseInt(urlObj.searchParams.get('height') || '0', 10);
+                } catch(e) {}
+                
+                return (
+                <div 
+                  key={idx} 
+                  className="relative group/img w-full h-full min-h-[300px] flex items-center justify-center bg-studio-900 border border-white/5 rounded-xl overflow-hidden aspect-square md:aspect-auto cursor-zoom-in"
+                  onClick={() => setCurrentZoomImage({ 
+                    url: img.localUrl, 
+                    metadata: { seed: img.seed, model, width, height } 
+                  })}
+                >
                    <img 
-                     src={url} 
+                     src={img.localUrl} 
                      alt={`Generated Artwork ${idx + 1}`} 
                      className="w-full h-full object-contain xl:object-cover drop-shadow-2xl animate-in zoom-in-95 duration-700" 
                    />
                    <div className="absolute bottom-4 right-4 opacity-100 md:opacity-0 md:group-hover/img:opacity-100 transition-opacity duration-300">
                      <button
-                       onClick={() => handleDownload(url)}
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         handleDownload(img.localUrl);
+                       }}
                        className="bg-studio-950/80 hover:bg-studio-100 hover:text-studio-950 text-studio-100 p-3 md:p-3 rounded-xl shadow-xl backdrop-blur-md border border-white/10 transition-all flex items-center justify-center"
                        title="Tải ảnh gốc"
                      >
@@ -708,7 +774,7 @@ function App() {
                      </button>
                    </div>
                 </div>
-              ))}
+              )})}
             </div>
           ) : null}
 
@@ -742,6 +808,10 @@ function App() {
         onSelect={(model) => doInferPrompt(model)}
         onClose={() => setGeminiModelSelectionOpen(false)}
       />
+
+      {currentZoomImage && (
+        <ImageZoomModal imageUrl={currentZoomImage.url} metadata={currentZoomImage.metadata} onClose={() => setCurrentZoomImage(null)} />
+      )}
 
       <PromptHistoryDialog 
         isOpen={historyOpen}

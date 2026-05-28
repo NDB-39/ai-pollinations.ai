@@ -16,9 +16,9 @@ export const getModelOptimizationRule = (model: string): string => {
     case 'qwen-image':
       return "Quy tắc tối ưu cho Qwen-Image: Mô tả chi tiết chính xác về tỷ lệ, cấu trúc khuôn mặt và trang phục. Bố cục phải thật cân đối. Sử dụng các keyword như 'masterpiece, best quality, ultra-detailed, 8k resolution' để kích hoạt nội dung chất lượng cao nhất.";
     case 'wan-image':
-      return "Quy tắc tối ưu cho Wan-Image: Ưu tiên mô tả bối cảnh và môi trường sâu sắc. Yêu cầu độ chân thực cao, sử dụng các thuật ngữ như 'photorealistic, DSLR, f/1.8, shallow depth of field, real-life photography'.";
+      return "QUY TẮC TỐI QUAN TRỌNG CHO WAN-IMAGE: Bạn BẮT BUỘC phải viết prompt như một nhà văn miêu tả cảnh quan, sử dụng NGÔN NGỮ TỰ NHIÊN (Natural Language) thành những câu văn dài, mạch lạc. KHÔNG DÙNG DẤU PHẨY để liệt kê từ khóa (tức là không viết 'masterpiece, best quality, 8k').\nĐỂ ẢNH ĐẠT ĐỘ CHÂN THỰC TỐI ĐA (Photorealistic): Áp dụng 'Natural Chaos' (Sự lộn xộn tự nhiên/Bất đối xứng) - hãy miêu tả cụ thể sự không hoàn hảo chân thực của chủ thể và môi trường xung quanh: lọn tóc bay lộn xộn trong gió, kết cấu da có vật lý thực tế như tàn nhang hoặc lỗ chân lông, quần áo hơi nhăn tự nhiên, ánh sáng tản mạn không đồng đều, các vật thể nhỏ xuất hiện ngẫu nhiên ở hậu cảnh, nhiễu hạt nhẹ (film grain). Tạo ra cảm giác ảnh chụp lén/phóng sự (candid photography), khoảnh khắc bắt được một cách tự nhiên chứ KHÔNG pose dáng hoàn hảo cứng nhắc giống AI rendering.";
     case 'zimage':
-      return "Quy tắc tối ưu cho zImage: Tập trung vào độ tương phản cao, phong cách Dramatic và chi tiết vi mô (micro-details). Sử dụng các từ khóa 'hyper-realistic, sharp focus, volumetric lighting, unreal engine 5 render, cinematic lighting'. Giữ prompt súc tích nhưng chặt chẽ ở các từ vựng kết cấu.";
+      return "QUY TẮC TỐI ƯU ĐẶC BIỆT CHO ZIMAGE NHẰM KHẮC PHỤC LỖI VẼ: 1. Để tránh lỗi dị dạng (đặc biệt là lỗi cấu trúc cơ thể, tay và khuôn mặt), bạn PHẢI nhấn mạnh các từ khóa: 'masterpiece, best quality, ultra-detailed, photorealistic, anatomically correct, perfect human anatomy, symmetrical perfect face, highly detailed eyes, perfectly drawn hands, exactly five fingers'. 2. Sử dụng ánh sáng và chi tiết vi mô: 'hyper-realistic, volumetric lighting, cinematic lighting, sharp focus, ultra-sharp, 8k resolution'. 3. Mô tả dáng đứng và góc máy thật rõ ràng, tránh tư thế quá rối rắm hoặc che khuất; đảm bảo cấu trúc hình học chuẩn xác.";
     default:
       return "";
   }
@@ -29,7 +29,7 @@ export const getModelNegativePrompt = (model: string): string => {
     case 'qwen-image':
       return "ugly, deformed, bad anatomy, bad proportions, bad perspective, watermark, signature, text, out of frame, lowres, error, cropped, worst quality, low quality, jpeg artifacts";
     case 'zimage':
-      return "ugly, duplicate, morbid, mutilated, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, bad shading, fake cg, 3d render";
+      return "ugly, duplicate, morbid, mutilated, mutated hands, poorly drawn hands, poorly drawn face, poorly drawn eyes, cross-eyed, mutation, deformed, blurry, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, extra fingers, missing fingers, fused fingers, too many fingers, broken finger, six fingers, long neck, bad shading, fake cg, 3d render, watermark, signature, text, out of frame, lowres, worst quality, low quality, jpeg artifacts, overexposed, underexposed, unnatural pose";
     case 'wan-image':
       return "ugly, deformed, text, watermark, bad anatomy, bad proportions, blur, blurry, low res, oversaturated, overexposed, underexposed, fake, cartoon, illustration, painting";
     case 'flux':
@@ -55,9 +55,13 @@ export const checkSyntaxWarnings = (prompt: string, model: string): string[] => 
     warnings.push('Phát hiện cú pháp trọng số (weight). Flux/GPTImage phản hồi tốt hơn với ngôn ngữ kể chuyện tả thực thay vì dùng trọng số.');
   }
 
-  // Bullet point / comma keyword spam warning for Flux/GPTImage
-  if (prompt.split(',').length > 15 && model === 'flux') {
-    warnings.push('Prompt dường như chứa quá nhiều từ khóa rời rạc. Flux phản hồi tốt hơn với câu văn mô tả tự nhiên.');
+  // Bullet point / comma keyword spam warning for Flux/GPTImage/Wan
+  const wordCount = prompt.trim().split(/\s+/).length;
+  const commaCount = (prompt.match(/,/g) || []).length;
+  
+  // Nếu có nhiều dấu phẩy và mật độ từ trên mỗi dấu phẩy quá thấp (dấu hiệu của việc liệt kê từ khóa)
+  if (commaCount > 8 && (wordCount / commaCount) < 6 && ['flux', 'wan-image'].includes(model)) {
+    warnings.push('Cảnh báo: Prompt có vẻ đang sử dụng liệt kê từ khóa (comma-separated keywords). Model này hoạt động tốt nhất bằng Ngôn ngữ kể chuyện tự nhiên (Natural Language narrative). Hãy chuyển thành câu văn.');
   }
 
   return warnings;

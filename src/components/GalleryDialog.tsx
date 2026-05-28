@@ -1,6 +1,7 @@
 import { X, Copy, Download, Image as ImageIcon, Check, Trash2, Maximize2, Sparkles, CheckSquare, Square } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { ImageZoomModal } from "./ImageZoomModal";
 
 export interface GalleryItem {
   id: string;
@@ -21,7 +22,7 @@ export interface GalleryDialogProps {
 
 export function GalleryDialog({ isOpen, gallery, onClose, onUsePrompt, onDelete, onDeleteMultiple, onUpscale }: GalleryDialogProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [zoomedImageUrl, setZoomedImageUrl] = useState<string | null>(null);
+  const [zoomedItem, setZoomedItem] = useState<GalleryItem | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState<boolean>(false);
@@ -159,7 +160,7 @@ export function GalleryDialog({ isOpen, gallery, onClose, onUsePrompt, onDelete,
                       if (isSelectionMode) {
                         toggleSelection(item.id);
                       } else {
-                        setZoomedImageUrl(item.url);
+                        setZoomedItem(item);
                       }
                     }}
                   >
@@ -266,27 +267,30 @@ export function GalleryDialog({ isOpen, gallery, onClose, onUsePrompt, onDelete,
       />
       
       {/* Zoom Modal */}
-      {zoomedImageUrl && (
-        <div 
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/95 p-4 cursor-zoom-out animate-in fade-in duration-200"
-          onClick={() => setZoomedImageUrl(null)}
-        >
-          <img 
-            src={zoomedImageUrl} 
-            alt="Zoomed Artwork" 
-            className="max-w-full max-h-full object-contain animate-in zoom-in-95 duration-300" 
+      {zoomedItem && (() => {
+        let model = '';
+        let width = 0;
+        let height = 0;
+        let seed = 0;
+        try {
+          const urlObj = new URL(zoomedItem.url);
+          model = decodeURIComponent(urlObj.searchParams.get('model') || '');
+          width = parseInt(urlObj.searchParams.get('width') || '0', 10);
+          height = parseInt(urlObj.searchParams.get('height') || '0', 10);
+          
+          // Seed can be recovered from ID: timestamp_seed
+          const seedParts = zoomedItem.id.split('_');
+          seed = parseInt(seedParts[seedParts.length - 1], 10);
+        } catch(e) {}
+        
+        return (
+          <ImageZoomModal 
+            imageUrl={zoomedItem.url} 
+            metadata={{ seed, model, width, height }} 
+            onClose={() => setZoomedItem(null)} 
           />
-          <button 
-            className="absolute top-6 right-6 p-2 text-studio-400 hover:text-white bg-studio-900/50 rounded-full transition-colors"
-            onClick={(e) => {
-              e.stopPropagation();
-              setZoomedImageUrl(null);
-            }}
-          >
-            <X className="w-6 h-6" />
-          </button>
-        </div>
-      )}
+        );
+      })()}
     </>
   );
 }

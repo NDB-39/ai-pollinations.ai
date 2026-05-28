@@ -1,6 +1,6 @@
 {
-  "name": "AI-pollinations.ai-STUDIO",
-  "description": "Ứng dụng studio tạo ảnh nghệ thuật dựa trên pollinations.ai và Gemini, với giao diện điện ảnh cao cấp và hiện đại.",
+  "name": "Remix: AI-pollinations.ai",
+  "description": "Ứng dụng studio tạo ảnh nghệ thuật dựa trên prompt hoặc LLM nội suy ideas, với giao diện điện ảnh cao cấp.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }
