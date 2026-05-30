@@ -1,4 +1,4 @@
-import { X, Copy, Download, Image as ImageIcon, Check, Trash2, Maximize2, Sparkles, CheckSquare, Square } from "lucide-react";
+import { X, Copy, Download, Image as ImageIcon, Check, Trash2, Maximize2, Sparkles, CheckSquare, Square, Brush } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ImageZoomModal } from "./ImageZoomModal";
@@ -18,9 +18,10 @@ export interface GalleryDialogProps {
   onDelete: (id: string) => void;
   onDeleteMultiple?: (ids: string[]) => void;
   onUpscale?: (item: GalleryItem) => void;
+  onInpaint?: (item: GalleryItem) => void;
 }
 
-export function GalleryDialog({ isOpen, gallery, onClose, onUsePrompt, onDelete, onDeleteMultiple, onUpscale }: GalleryDialogProps) {
+export function GalleryDialog({ isOpen, gallery, onClose, onUsePrompt, onDelete, onDeleteMultiple, onUpscale, onInpaint }: GalleryDialogProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [zoomedItem, setZoomedItem] = useState<GalleryItem | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -201,6 +202,17 @@ export function GalleryDialog({ isOpen, gallery, onClose, onUsePrompt, onDelete,
                           title="Nâng cấp độ phân giải 4K"
                         >
                           <Sparkles className="w-3 h-3 text-accent" /> Upscale
+                        </button>
+                      )}
+                      
+                      {onInpaint && (
+                        <button 
+                          onClick={() => onInpaint(item)}
+                          disabled={isSelectionMode}
+                          className="flex-1 min-w-[70px] py-1.5 bg-studio-800/80 hover:bg-studio-700 text-teal-400 text-[10px] sm:text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1 border border-white/5 shadow-sm disabled:opacity-50"
+                          title="Vẽ đè & sửa lỗi chi tiết (In-paint)"
+                        >
+                          <Brush className="w-3 h-3 text-teal-400" /> In-paint
                         </button>
                       )}
                       

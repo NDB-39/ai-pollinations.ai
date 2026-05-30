@@ -35,7 +35,7 @@ Chỉ trả về DUY NHẤT một đoạn prompt tiếng Anh, không kèm theo b
   }
 
   const endpoint = proxyUrl || 'https://text.pollinations.ai/';
-  const modelToUse = modelName || 'openai-large';
+  const modelToUse = modelName || 'openai';
 
   try {
     const messages: any[] = [
