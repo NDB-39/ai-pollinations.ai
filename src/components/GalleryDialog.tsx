@@ -6,6 +6,7 @@ import { ImageZoomModal } from "./ImageZoomModal";
 export interface GalleryItem {
   id: string;
   url: string;
+  originalUrl?: string;
   prompt: string;
   createdAt: number;
 }

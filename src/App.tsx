@@ -3,14 +3,12 @@ import { Camera, Settings as SettingsIcon, Image as ImageIcon, Sparkles, Downloa
 import { InstructionBanner } from './components/InstructionBanner';
 import { SettingsDialog, Settings } from './components/SettingsDialog';
 import { AlertDialog } from './components/AlertDialog';
-import { ModelSelectionDialog } from './components/ModelSelectionDialog';
 import { PromptHistoryDialog, PromptHistoryItem } from './components/PromptHistoryDialog';
 import { GalleryDialog, GalleryItem } from './components/GalleryDialog';
 import { SavePresetDialog } from './components/SavePresetDialog';
 import { PresetsDialog, PresetItem } from './components/PresetsDialog';
 import { StylePresetsUI } from './components/StylePresetsUI';
 import { InpaintModal } from './components/InpaintModal';
-import { SmartGenerateDialog } from './components/SmartGenerateDialog';
 import { ImageZoomModal } from './components/ImageZoomModal';
 import { enhancePromptWithGemini } from './services/geminiService';
 import { enhancePromptWithProxy } from './services/proxyService';
@@ -116,26 +114,13 @@ function App() {
   const [loadingText, setLoadingText] = useState('');
   
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [modelSelectionOpen, setModelSelectionOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [inpaintItem, setInpaintItem] = useState<GalleryItem | null>(null);
   const [presetsOpen, setPresetsOpen] = useState(false);
   const [savePresetOpen, setSavePresetOpen] = useState(false);
-  const [smartGenerateOpen, setSmartGenerateOpen] = useState(false);
-  const [smartGenerateData, setSmartGenerateData] = useState<{
-    prompts: string[];
-    count: number;
-    hasVietnamese: boolean;
-  } | null>(null);
   const [isBatchMode, setIsBatchMode] = useState(false);
   
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
-  const [geminiModelSelectionOpen, setGeminiModelSelectionOpen] = useState(false);
-  const [availableGeminiModels, setAvailableGeminiModels] = useState<string[]>([]);
-
-  const [pendingCount, setPendingCount] = useState(1);
-  const [pendingPrompts, setPendingPrompts] = useState<string[]>([]);
   const [history, setHistory] = useState<PromptHistoryItem[]>([]);
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
   const [presets, setPresets] = useState<PresetItem[]>([]);
@@ -250,25 +235,22 @@ function App() {
     
     // Choose which models array to split based on settings.useGemini
     const modelsRaw = settings.useGemini ? (settings.geminiModel || '') : (settings.proxyModel || '');
-    const models = modelsRaw.split(',').map(s => s.trim()).filter(s => s !== '');
+    const firstModel = modelsRaw.split(',').map(s => s.trim()).filter(s => s !== '')[0] || '';
     
-    if (models.length > 1) {
-      setAvailableGeminiModels(models);
-      setGeminiModelSelectionOpen(true);
-    } else {
-      doInferPrompt(models.length === 1 ? models[0] : '');
+    doInferPrompt(firstModel);
+  };
+
+  const inferSinglePrompt = async (text: string, txtModel: string, imgModel: string) => {
+    if (settings.useGemini) {
+      return enhancePromptWithGemini(text, settings.apiKey, customRules, txtModel, referenceImage || undefined, imgModel, characterProfile);
     }
+    return enhancePromptWithProxy(text, APP_CONFIG.PROXY_URL, txtModel, customRules, referenceImage || undefined, imgModel, characterProfile);
   };
 
   const doInferPrompt = async (selectedModel: string) => {
     setIsInferring(true);
     try {
-      let resultPrompt = ideaText;
-      if (settings.useGemini) {
-        resultPrompt = await enhancePromptWithGemini(ideaText, settings.apiKey, customRules, selectedModel, referenceImage || undefined, targetRenderModel, characterProfile);
-      } else {
-        resultPrompt = await enhancePromptWithProxy(ideaText, APP_CONFIG.PROXY_URL, selectedModel, customRules, referenceImage || undefined, targetRenderModel, characterProfile);
-      }
+      const resultPrompt = await inferSinglePrompt(ideaText, selectedModel, targetRenderModel);
       setPromptText(resultPrompt);
       addToHistory(ideaText, resultPrompt, customRules, characterProfile);
       
@@ -311,12 +293,7 @@ function App() {
         
         const chunkOptions = prompts.slice(i, i + concurrencyLimit);
         const chunkPromises = chunkOptions.map(async (promptVal) => {
-          let resultPrompt = promptVal;
-          if (settings.useGemini) {
-            resultPrompt = await enhancePromptWithGemini(promptVal, settings.apiKey, customRules, textModel, referenceImage || undefined, imageModel, characterProfile);
-          } else {
-            resultPrompt = await enhancePromptWithProxy(promptVal, APP_CONFIG.PROXY_URL, textModel, customRules, referenceImage || undefined, imageModel, characterProfile);
-          }
+          const resultPrompt = await inferSinglePrompt(promptVal, textModel, imageModel);
           return { original: promptVal, result: resultPrompt };
         });
         
@@ -352,7 +329,7 @@ function App() {
     }
   };
 
-  const handlePreGenerate = (count: number = 1) => {
+  const handlePreGenerate = async (count: number = 1) => {
     if (!promptText.trim()) return;
 
     let promptsToGenerate = [promptText.trim()];
@@ -362,13 +339,16 @@ function App() {
     }
 
     const hasVietnamese = promptsToGenerate.some(p => checkVietnamese(p));
+    
+    // Get text model
+    const textModels = (settings.useGemini ? settings.geminiModel : settings.proxyModel) || '';
+    const firstTextModel = textModels.split(',').map(s => s.trim()).filter(s => s)[0] || '';
 
-    setSmartGenerateData({
-      prompts: promptsToGenerate,
-      count,
-      hasVietnamese,
-    });
-    setSmartGenerateOpen(true);
+    if (hasVietnamese) {
+      await doEnhanceAndGenerate(firstTextModel, targetRenderModel, promptsToGenerate, count);
+    } else {
+      await doGenerate(targetRenderModel, count, promptsToGenerate);
+    }
   };
 
   const doGenerate = async (selectedModel: string, count: number = 1, prompts?: string[]) => {
@@ -382,90 +362,61 @@ function App() {
     
     try {
       const dim = getDimensions(aspectRatio);
+      let results: GeneratedImage[] = [];
+      const concurrencyLimit = 3;
       
+      // Determine the list of jobs
+      const jobs: { prompt: string, seedIdx: number }[] = [];
       if (isBatch) {
-        let results: GeneratedImage[] = [];
-        const concurrencyLimit = 3;
-        
-        for (let i = 0; i < targetPrompts.length; i += concurrencyLimit) {
-          const chunkOptions = targetPrompts.slice(i, i + concurrencyLimit);
-          setLoadingText(`Đang xử lý hàng loạt ${i + 1} - ${Math.min(i + concurrencyLimit, targetPrompts.length)} / ${targetPrompts.length}...`);
-
-          const chunkPromises = chunkOptions.map(async (currentPrompt, chunkIdx) => {
-             const idx = i + chunkIdx;
-             let seed = seedText && seedText.trim() ? parseInt(seedText.trim(), 10) : null;
-             if (seed !== null && !isNaN(seed)) {
-                 seed = seed + idx; 
-             } else {
-                 seed = Math.floor(Math.random() * 1000000);
-             }
-             
-             const originalUrl = generateImageUrl(currentPrompt, selectedModel, seed, dim.width, dim.height, negativePrompt);
-             const res = await fetchWithRetryUrl(originalUrl);
-             const blob = await res.blob();
-             const base64Url = await blobToBase64(blob);
-             return {
-                 prompt: currentPrompt,
-                 image: { localUrl: URL.createObjectURL(blob), originalUrl, seed, base64Url }
-             };
-          });
-
-          const chunkResults = await Promise.all(chunkPromises);
-          
-          const images = chunkResults.map(r => r.image);
-          results = [...results, ...images];
-          setImageUrls([...results]); // update progressively
-          
-          await addToGallery(chunkResults.map(r => ({
-            id: Date.now().toString() + '_' + r.image.seed + '_' + Math.random().toString(36).substring(7),
-            url: r.image.base64Url,
-            prompt: r.prompt,
-            createdAt: Date.now()
-          })));
-        }
+        targetPrompts.forEach((p, idx) => jobs.push({ prompt: p, seedIdx: idx }));
       } else {
-        setLoadingText(count > 1 ? `Đang phơi sáng ${count} biến thể...` : 'Đang phơi sáng (Tạo ảnh)...');
-        
-        const concurrencyLimit = 3;
-        const results: GeneratedImage[] = [];
-        
-        for (let i = 0; i < count; i += concurrencyLimit) {
-          const chunkOptions = Array.from({ length: Math.min(concurrencyLimit, count - i) });
-          
-          if (count > concurrencyLimit) {
-             setLoadingText(`Đang phơi sáng ${i + 1} đến ${Math.min(i + concurrencyLimit, count)} / ${count} biến thể...`);
-          }
-
-          const chunkPromises = chunkOptions.map(async (_, chunkIdx) => {
-            const idx = i + chunkIdx;
-            let seed = seedText && seedText.trim() ? parseInt(seedText.trim(), 10) : null;
-            if (seed !== null && !isNaN(seed)) {
-                seed = seed + idx; // Tăng seed cho các biến thể để tránh tạo ra ảnh giống hệt nhau
-            } else {
-                seed = Math.floor(Math.random() * 1000000);
-            }
-            
-            const originalUrl = generateImageUrl(targetPrompts[0], selectedModel, seed, dim.width, dim.height, negativePrompt);
-            
-            const res = await fetchWithRetryUrl(originalUrl);
-            const blob = await res.blob();
-            const base64Url = await blobToBase64(blob);
-            return { localUrl: URL.createObjectURL(blob), originalUrl, seed, base64Url };
-          });
-
-          const chunkResults = await Promise.all(chunkPromises);
-          results.push(...chunkResults);
-          setImageUrls([...results]); // Hiển thị dần dần khi hoàn thành từng lô
+        for (let i = 0; i < count; i++) {
+          jobs.push({ prompt: targetPrompts[0], seedIdx: i });
         }
+      }
+
+      setLoadingText(isBatch 
+        ? `Đang xử lý hàng loạt ${jobs.length} prompts...` 
+        : (count > 1 ? `Đang phơi sáng ${count} biến thể...` : 'Đang phơi sáng (Tạo ảnh)...'));
+
+      for (let i = 0; i < jobs.length; i += concurrencyLimit) {
+        const chunk = jobs.slice(i, i + concurrencyLimit);
         
-        await addToGallery(
-          results.map(r => ({
-            id: Date.now().toString() + '_' + r.seed,
-            url: r.base64Url,
-            prompt: targetPrompts[0],
-            createdAt: Date.now()
-          }))
-        );
+        if (jobs.length > concurrencyLimit) {
+          setLoadingText(`Đang xử lý ${i + 1} đến ${Math.min(i + concurrencyLimit, jobs.length)} / ${jobs.length}...`);
+        }
+
+        const chunkPromises = chunk.map(async (job) => {
+           let seed = seedText && seedText.trim() ? parseInt(seedText.trim(), 10) : null;
+           if (seed !== null && !isNaN(seed)) {
+               seed = seed + job.seedIdx; 
+           } else {
+               seed = Math.floor(Math.random() * 1000000);
+           }
+           
+           const originalUrl = generateImageUrl(job.prompt, selectedModel, seed, dim.width, dim.height, negativePrompt);
+           const res = await fetchWithRetryUrl(originalUrl);
+           const blob = await res.blob();
+           const base64Url = await blobToBase64(blob);
+           return {
+               prompt: job.prompt,
+               image: { localUrl: URL.createObjectURL(blob), originalUrl, seed, base64Url }
+           };
+        });
+
+        const chunkResults = await Promise.all(chunkPromises);
+        
+        const images = chunkResults.map(r => r.image);
+        results = [...results, ...images];
+        setImageUrls([...results]); // update progressively
+        
+        await addToGallery(chunkResults.map(r => ({
+          id: Date.now().toString() + '_' + r.image.seed + '_' + Math.random().toString(36).substring(7),
+          url: r.image.base64Url || '',
+          originalUrl: r.image.originalUrl,
+          prompt: r.prompt,
+          createdAt: Date.now()
+        })));
       }
     } catch (err: any) {
       showAlert(err.message || 'Quá trình tráng phim bị lỗi.');
@@ -476,23 +427,24 @@ function App() {
 
   const handleUpscale = async (item: GalleryItem) => {
     setIsLoading(true);
-    setLoadingText('Đang upscale & nội suy phục hồi nét bằng GFPGAN/RealESRGAN...');
+    setLoadingText('Đang upscale bằng cách phơi sáng ở độ phân giải 4K...');
     try {
-      // Create new URL by replacing width=...&height=... with 4K resolution
-      let upscaledUrl = item.url.replace(/width=\d+/, 'width=3840').replace(/height=\d+/, 'height=2160');
+      // Extract seed
+      const seedParts = item.id.split('_');
+      let seed = parseInt(seedParts[seedParts.length - 1], 10);
+      if (isNaN(seed)) seed = Math.floor(Math.random() * 100000);
+
+      let upscaledUrl = item.originalUrl 
+        ? item.originalUrl.replace(/width=\d+/, 'width=3840').replace(/height=\d+/, 'height=2160')
+        : generateImageUrl(item.prompt, settings.customModel.split(',')[0] || 'flux', seed, 3840, 2160, negativePrompt);
       
-      const res = await fetch(upscaledUrl);
-      if (!res.ok) throw new Error('Không thể upscale ảnh.');
+      const res = await fetchWithRetryUrl(upscaledUrl);
       const blob = await res.blob();
       const localUrl = URL.createObjectURL(blob);
       const base64Url = await blobToBase64(blob);
       
       // Dọn rác Blob cũ trước khi upscale
       imageUrls.forEach(img => URL.revokeObjectURL(img.localUrl));
-      
-      // Khôi phục seed từ id
-      const seedParts = item.id.split('_');
-      const seed = parseInt(seedParts[seedParts.length - 1], 10);
       
       const newImg = { localUrl, originalUrl: upscaledUrl, seed, base64Url };
       setImageUrls([newImg]);
@@ -501,6 +453,7 @@ function App() {
       await addToGallery([{
         id: Date.now().toString() + '_' + seed,
         url: base64Url,
+        originalUrl: upscaledUrl,
         prompt: item.prompt + ', masterpiece, 4k ultra hd, highly detailed',
         createdAt: Date.now()
       }]);
@@ -550,6 +503,7 @@ function App() {
        await addToGallery([{
          id: Date.now().toString() + '_' + (seed + 1),
          url: base64Url,
+         originalUrl,
          prompt: combinedPrompt,
          createdAt: Date.now()
        }]);
@@ -774,21 +728,6 @@ function App() {
                     />
                   </div>
                   
-                  <div className="space-y-3">
-                    <label className="block text-sm font-medium text-studio-400">
-                      Tối ưu Prompt cho Model:
-                    </label>
-                    <select
-                      value={targetRenderModel}
-                      onChange={(e) => setTargetRenderModel(e.target.value)}
-                      className="w-full bg-studio-900 border border-studio-600 rounded-lg p-3 text-studio-50 text-base focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-                    >
-                      {OPTIMIZATION_MODELS.map(model => (
-                        <option key={model.value} value={model.value}>{model.label}</option>
-                      ))}
-                    </select>
-                  </div>
-
                   <button
                     onClick={handlePreInferPrompt}
                     disabled={isInferring || !ideaText.trim()}
@@ -808,6 +747,24 @@ function App() {
                   <span className="bg-studio-800 text-studio-100 text-xs md:text-sm font-mono px-2 py-1 rounded-md uppercase tracking-wider">Step {mode === 'idea' ? '02' : '01'}</span>
                   <h3 className="text-base font-medium text-studio-100 tracking-wide">Tạo Tác Phẩm</h3>
                 </div>
+                <div className="flex flex-col gap-3">
+                  <label className="block text-sm font-medium text-studio-400">
+                    Model Tạo Ảnh (Render Model):
+                  </label>
+                  <select
+                    value={targetRenderModel}
+                    onChange={(e) => setTargetRenderModel(e.target.value)}
+                    className="w-full bg-studio-900 border border-studio-600 rounded-lg p-3 text-studio-50 text-base focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                  >
+                    {OPTIMIZATION_MODELS.map(model => (
+                      <option key={model.value} value={model.value}>{model.label}</option>
+                    ))}
+                    {settings.customModel.split(',').map(s => s.trim()).filter(s => s && !OPTIMIZATION_MODELS.some(om => om.value === s)).map(custom => (
+                      <option key={custom} value={custom}>Custom: {custom}</option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
                     <label className="block text-sm font-medium text-studio-400">
@@ -1039,40 +996,6 @@ function App() {
         isOpen={alertState.isOpen}
         message={alertState.message}
         onClose={() => setAlertState({ isOpen: false, message: '' })}
-      />
-
-      <SmartGenerateDialog
-        isOpen={smartGenerateOpen}
-        isVietnamese={smartGenerateData?.hasVietnamese || false}
-        targetRenderModel={targetRenderModel}
-        availableTextModels={(settings.useGemini ? settings.geminiModel : settings.proxyModel).split(',').map(s => s.trim()).filter(Boolean).map(id => ({ id, name: id }))}
-        availableImageModels={settings.customModel.split(',').map(s => s.trim()).filter(Boolean).map(id => ({ id, name: id }))}
-        onProceedEnhance={(textModel, imageModel) => {
-          if (smartGenerateData) {
-            doEnhanceAndGenerate(textModel, imageModel, smartGenerateData.prompts, smartGenerateData.count);
-          }
-        }}
-        onProceedDirect={(imageModel) => {
-          if (smartGenerateData) {
-            doGenerate(imageModel, smartGenerateData.count, smartGenerateData.prompts);
-          }
-        }}
-        onClose={() => setSmartGenerateOpen(false)}
-      />
-
-      <ModelSelectionDialog
-        isOpen={modelSelectionOpen}
-        models={availableModels}
-        onSelect={(model) => doGenerate(model, pendingCount, pendingPrompts)}
-        onClose={() => setModelSelectionOpen(false)}
-      />
-
-      <ModelSelectionDialog
-        title="Chọn Model Gemini"
-        isOpen={geminiModelSelectionOpen}
-        models={availableGeminiModels}
-        onSelect={(model) => doInferPrompt(model)}
-        onClose={() => setGeminiModelSelectionOpen(false)}
       />
 
       {currentZoomImage && (

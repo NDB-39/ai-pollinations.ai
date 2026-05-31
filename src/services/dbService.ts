@@ -6,6 +6,7 @@ interface GalleryDB extends DBSchema {
     value: {
       id: string;
       url: string; // The original URL, can be a data URL now
+      originalUrl?: string;
       prompt: string;
       createdAt: number;
     };
@@ -29,7 +30,7 @@ function getDb() {
   return dbPromise;
 }
 
-export async function addImageToDB(image: { id: string; url: string; prompt: string; createdAt: number }) {
+export async function addImageToDB(image: { id: string; url: string; originalUrl?: string; prompt: string; createdAt: number }) {
   const db = await getDb();
   await db.put('gallery', image);
 }
